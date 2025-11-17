@@ -64,7 +64,25 @@ class OracleQED(_BaseOracle):
 
 
 class OracleSA(_BaseOracle):
-    """Wraps TDC's synthetic accessibility oracle for SAFE sequences."""
+    """
+    Wraps TDC's synthetic accessibility oracle for SAFE sequences.
+    
+    SA scores are normalized to [0, 1] where higher is better:
+    1. Raw SA scores are clipped to max 6.0
+    2. Normalized as: (6 - SA_score) / 5
+
+    Thus SA = 1 (easy to synthesize) becomes 1.0, SA = 6 (hard) becomes 0.0
+    """
 
     oracle_name = "sa"
-    invalid_score = 10.0
+    invalid_score = 6.0
+
+    def __call__(self, input_seqs):
+
+        raw_scores = super().__call__(input_seqs)
+        
+        ## 6 is not max theoretically but it is clipped in PMO
+        clipped_scores = np.clip(raw_scores, a_min=1, a_max=6.0)
+        normalized_scores = (6.0 - clipped_scores) / 5.0
+        
+        return normalized_scores.astype(np.float32)
