@@ -1,7 +1,7 @@
 import numpy as np
 import safe as sf
 from tdc import Oracle, Evaluator
-
+from typing import List
 
 class _BaseOracle:
     """
@@ -36,7 +36,7 @@ class _BaseOracle:
             return None
         return smiles
 
-    def __call__(self, input_seqs):
+    def __call__(self, input_seqs: List[str]) -> np.ndarray:
         scores = np.full(len(input_seqs), self.invalid_score, dtype=np.float32)
 
         smiles_batch = []
@@ -77,7 +77,7 @@ class OracleSA(_BaseOracle):
     oracle_name = "sa"
     invalid_score = 6.0
 
-    def __call__(self, input_seqs):
+    def __call__(self, input_seqs: List[str]) -> np.ndarray:
 
         raw_scores = super().__call__(input_seqs)
         
