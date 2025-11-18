@@ -24,16 +24,24 @@ from contextlib import suppress
 from rdkit import Chem, RDLogger, DataStructs
 from rdkit.Chem import AllChem
 from rdkit.Chem.Scaffolds import MurckoScaffold
-RDLogger.DisableLog('rdApp.*')
+
+RDLogger.DisableLog("rdApp.*")
 from typing import List, Set, Optional, Iterable, Tuple, Generator
+
 
 # https://github.com/datamol-io/safe/blob/main/safe/sample.py
 # https://github.com/jensengroup/GB_GA/blob/master/crossover.py
 def safe_to_smiles(safe_str: str, fix: bool = True) -> Optional[str]:
     if fix:
-        safe_str = '.'.join([frag for frag in safe_str.split('.')
-                             if sf.decode(frag, ignore_errors=True) is not None])
+        safe_str = ".".join(
+            [
+                frag
+                for frag in safe_str.split(".")
+                if sf.decode(frag, ignore_errors=True) is not None
+            ]
+        )
     return sf.decode(safe_str, canonical=True, ignore_errors=True)
+
 
 def smiles_to_mol(smiles: str) -> Optional[Chem.Mol]:
     """
@@ -66,11 +74,10 @@ def mol_to_canonical_smiles(mol: Chem.Mol) -> str:
 def mol_to_fp(mol: Chem.Mol, radius: int = 2, n_bits: int = 2048):
     return AllChem.GetMorganFingerprintAsBitVect(mol, radius, nBits=n_bits)
 
+
 def cache_fps(
-    mols: List[Chem.Mol], 
-    radius: int = 2, 
-    n_bits: int = 2048,
-    save_path: str = 'fps.pkl') -> List[np.ndarray]:
+    mols: List[Chem.Mol], radius: int = 2, n_bits: int = 2048, save_path: str = "fps.pkl"
+) -> List[np.ndarray]:
     """
     Cache fingerprints of molecules.
 
@@ -82,10 +89,11 @@ def cache_fps(
     """
 
     fps = [mol_to_fp(mol, radius, n_bits) for mol in mols]
-    with open(save_path, 'wb') as f:
+    with open(save_path, "wb") as f:
         pickle.dump(fps, f)
 
-def load_fps(save_path: str = 'fps.pkl') -> List[np.ndarray]:
+
+def load_fps(save_path: str = "fps.pkl") -> List[np.ndarray]:
     """
     Load cached fingerprints of molecules.
 
@@ -96,9 +104,10 @@ def load_fps(save_path: str = 'fps.pkl') -> List[np.ndarray]:
         List of cached fingerprints.
     """
 
-    with open(save_path, 'rb') as f:
+    with open(save_path, "rb") as f:
         fps = pickle.load(f)
     return fps
+
 
 def safes_to_smiles_and_mols(
     safes: Iterable[str],
@@ -106,7 +115,7 @@ def safes_to_smiles_and_mols(
     """
     Batch convert SAFE strings to canonical SMILES + Mol objects.
     Skips any that fail decoding.
-    
+
     Args:
         safes: Iterable of SAFE strings to convert.
 
@@ -133,16 +142,17 @@ def safes_to_smiles_and_mols(
 
 def filter_by_substructure(sequences: List[str], substruct: str) -> List[str]:
     substruct = sf.utils.standardize_attach(substruct)
-    substruct = Chem.DeleteSubstructs(Chem.MolFromSmarts(substruct), Chem.MolFromSmiles('*'))
+    substruct = Chem.DeleteSubstructs(Chem.MolFromSmarts(substruct), Chem.MolFromSmiles("*"))
     substruct = Chem.MolFromSmarts(Chem.MolToSmiles(substruct))
     return sf.utils.filter_by_substructure_constraints(sequences, substruct)
 
+
 def mix_sequences(
-    prefix_sequences: List[str], 
-    suffix_sequences: List[str], 
-    prefix: str, 
-    suffix: str, 
-    num_samples: int = 1
+    prefix_sequences: List[str],
+    suffix_sequences: List[str],
+    prefix: str,
+    suffix: str,
+    num_samples: int = 1,
 ) -> List[str]:
 
     mol_linker_slicer = sf.utils.MolSlicer(require_ring_system=False)
@@ -174,14 +184,16 @@ def mix_sequences(
             break
         linked = [x for x in linked if x]
     return linked[:num_samples]
-    
+
 
 def cut(smiles: str) -> Set[str]:
     def cut_nonring(mol: Chem.Mol) -> Optional[List[Chem.Mol]]:
-        if not mol.HasSubstructMatch(Chem.MolFromSmarts('[*]-;!@[*]')):
+        if not mol.HasSubstructMatch(Chem.MolFromSmarts("[*]-;!@[*]")):
             return None
 
-        bis = random.choice(mol.GetSubstructMatches(Chem.MolFromSmarts('[*]-;!@[*]')))  # single bond not in ring
+        bis = random.choice(
+            mol.GetSubstructMatches(Chem.MolFromSmarts("[*]-;!@[*]"))
+        )  # single bond not in ring
         bs = [mol.GetBondBetweenAtoms(bis[0], bis[1]).GetIdx()]
         fragments_mol = Chem.FragmentOnBonds(mol, bs, addDummies=True, dummyLabels=[(1, 1)])
 
@@ -189,7 +201,7 @@ def cut(smiles: str) -> Set[str]:
             return Chem.GetMolFrags(fragments_mol, asMols=True, sanitizeFrags=True)
         except ValueError:
             return None
-        
+
     mol = Chem.MolFromSmiles(smiles)
     frags = set()
     # non-ring cut
@@ -204,11 +216,12 @@ class Slicer:
     def __call__(self, mol: Chem.Mol) -> Generator[List[int], None, None]:
         if isinstance(mol, str):
             mol = Chem.MolFromSmiles(mol)
-        
+
         # non-ring single bonds
-        bonds = mol.GetSubstructMatches(Chem.MolFromSmarts('[*]-;!@[*]'))
+        bonds = mol.GetSubstructMatches(Chem.MolFromSmarts("[*]-;!@[*]"))
         for bond in bonds:
             yield bond
+
 
 def uniqueness(smiles_list: List[str]) -> float:
     """
@@ -231,7 +244,7 @@ def loose_novelty(
     train_smiles: Iterable[str],
 ) -> float:
     """
-    Novel here means SMILES string that is not in training set. 
+    Novel here means SMILES string that is not in training set.
     Loose definition.
 
     Args:
@@ -251,11 +264,7 @@ def loose_novelty(
     return len(novel) / len(gen_smiles)
 
 
-def snn(
-    gen_fps: List, 
-    train_fps: Iterable,        
-    threshold: float = 0.4
-) -> Tuple[float, List[float]]:
+def snn(gen_fps: List, train_fps: Iterable, threshold: float = 0.4) -> Tuple[float, List[float]]:
     """
     Similarity to Nearest Neighbor (SNN).
 
@@ -286,7 +295,7 @@ def snn(
     passed = 0
     max_sims: List[float] = []
 
-    for fp in tqdm(gen_fps, desc='Calculating SNN'):
+    for fp in tqdm(gen_fps, desc="Calculating SNN"):
         sims = DataStructs.BulkTanimotoSimilarity(fp, train_fps)
         maxsim = max(sims) if sims else 0.0
         max_sims.append(maxsim)
@@ -296,6 +305,7 @@ def snn(
     passed_frac = passed / len(gen_fps)
 
     return passed_frac, max_sims
+
 
 def internal_diversity(
     mols: List[Chem.Mol],
@@ -352,6 +362,7 @@ def internal_diversity(
 
     return sum(distances) / len(distances)
 
+
 ## Fragment diversity operates on SAFEs
 def fragment_diversity(safes: Iterable[str]) -> Tuple[float, float]:
     """
@@ -388,6 +399,7 @@ def fragment_diversity(safes: Iterable[str]) -> Tuple[float, float]:
 
     return global_frag_div, mean_unique_per_mol
 
+
 def mol_to_scaffold(mol: Chem.Mol) -> Optional[str]:
     try:
         scaffold = MurckoScaffold.GetScaffoldForMol(mol)
@@ -397,9 +409,10 @@ def mol_to_scaffold(mol: Chem.Mol) -> Optional[str]:
     except Exception:
         return None
 
+
 def scaffold_diversity(mols: List[Chem.Mol]) -> Tuple[float, int]:
     """
-    Args: 
+    Args:
         mols: List of RDKit Mol objects.
 
     Returns:
@@ -421,5 +434,3 @@ def scaffold_diversity(mols: List[Chem.Mol]) -> Tuple[float, int]:
     scaffold_div = len(unique_scaffolds) / num_mols_with_scaffold
 
     return scaffold_div, len(unique_scaffolds)
-
-
