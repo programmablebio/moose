@@ -212,7 +212,6 @@ class Diffusion(L.LightningModule):
         self.bos_index = self.tokenizer.bos_token_id
         self.eos_index = self.tokenizer.eos_token_id
 
-        ## GenMol's sampler is a completely different module. Integrate??
         self.sampler = self.config.sampling.predictor
 
         ## This is for checking validity.
