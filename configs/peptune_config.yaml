@@ -7,7 +7,7 @@ noise:
 mode: ppl_eval  # train / ppl_eval / sample_eval
 diffusion: absorbing_state
 vocab: old_smiles # old_smiles / new_smiles / selfies / helm
-backbone: roformer  # peptideclm / helmgpt / dit / roformer / finetune_roformer / genmol
+backbone: genmol  # peptideclm / helmgpt / dit / roformer / finetune_roformer / genmol
 parameterization: subs  # subs
 time_conditioning: False
 T: 0  # 0 (continuous time) / 1000 

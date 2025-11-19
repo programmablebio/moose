@@ -48,6 +48,12 @@ argparser.add_argument("--num_sequences", type=int, default=10)
 argparser.add_argument("--num_children", type=int, default=50)
 argparser.add_argument("--num_iter", type=int, default=30)  # iterations of mcts
 argparser.add_argument("--seq_length", type=int, default=200)
+argparser.add_argument(
+    "--variable_length",
+    action="store_true",
+    default=False,
+    help="Enable variable-length sequence generation (uses len.pk distribution)",
+)
 argparser.add_argument("--time_conditioning", action="store_true", default=False)
 argparser.add_argument(
     "--mcts_sampling", type=int, default=0

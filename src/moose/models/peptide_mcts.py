@@ -3,6 +3,8 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 import random as rd
+import os
+import pickle
 
 from moose.utils.timer import StepTimer
 from moose.scoring.scoring_functions import MolScoringFunctions
@@ -265,10 +267,44 @@ class MCTS:
         self.num_obj = len(score_func_names)
 
         self.mask_index = policy_model.mask_index
-        masked_seq = torch.ones((self.args.seq_length), device=self.device) * self.mask_index
+        self.bos_index = policy_model.bos_index
+        self.eos_index = policy_model.eos_index
+        self.pad_index = policy_model.tokenizer.pad_token_id
+
+        # Load length distribution if variable_length is enabled
+        self.variable_length = getattr(args, "variable_length", False)
+        self.seq_len_list = None
+        if self.variable_length:
+            # Find repo root (data folder is at repo root)
+            # Current file is at src/moose/models/peptide_mcts.py
+            # Repo root is 3 levels up
+            current_file = os.path.realpath(__file__)
+            repo_root = os.path.dirname(
+                os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+            )
+            len_pk_path = os.path.join(repo_root, "data", "len.pk")
+            if os.path.exists(len_pk_path):
+                with open(len_pk_path, "rb") as f:
+                    self.seq_len_list = pickle.load(f)
+                print(
+                    f"[MCTS] Loaded length distribution from {len_pk_path} with {len(self.seq_len_list)} entries"
+                )
+            else:
+                print(
+                    f"[MCTS] Warning: len.pk not found at {len_pk_path}, falling back to fixed length"
+                )
+                self.variable_length = False
+
+        # Initialize root node with fixed or variable length
+        if self.variable_length:
+            masked_seq, attn_mask = self._create_variable_length_mask()
+        else:
+            masked_seq = torch.ones((self.args.seq_length), device=self.device) * self.mask_index
+            attn_mask = torch.ones_like(masked_seq).to(self.device)
+
         masked_tokens = {
             "seqs": masked_seq.to(dtype=torch.long),
-            "attention_mask": torch.ones_like(masked_seq).to(self.device),
+            "attention_mask": attn_mask.to(self.device),
         }
         if rootNode is None:
             self.rootNode = Node(
@@ -326,6 +362,59 @@ class MCTS:
         self.analyzer = policy_model.analyzer
         self.tokenizer = policy_model.tokenizer
 
+    def _create_variable_length_mask(self, min_add_len=18):
+        """
+        Create a variable-length masked sequence similar to GenMol's _insert_mask.
+        For TR2D2, we create a sequence with BOS, variable number of mask tokens, and EOS,
+        then pad to the maximum sequence length.
+
+        Args:
+            min_add_len: minimum length of the sequence to add to the mask
+
+        Returns:
+            masked_seq: tensor of shape (L, )
+            attn_mask: tensor of shape (L, )
+        """
+        # Get max length from config or args
+        max_len = getattr(self.config.model, "max_position_embeddings", self.args.seq_length)
+
+        assert (
+            self.seq_len_list is not None
+        ), "seq_len_list is not loaded but variable_length is enabled"
+
+        # Sample a length from the distribution
+        target_len = rd.choice(self.seq_len_list)
+        # Ensure minimum length
+        target_len = max(target_len, min_add_len)
+        # Cap at max length
+        target_len = min(target_len, max_len)
+
+        # Create sequence: BOS + masks + EOS
+        # Similar to GenMol: [BOS, MASK, MASK, ..., MASK, EOS]
+        mask_count = target_len - 2  # Subtract BOS and EOS
+        if mask_count < 1:
+            mask_count = 1  # Ensure at least one mask token
+
+        masked_seq = torch.hstack(
+            [
+                torch.tensor([self.bos_index], device=self.device),
+                torch.full((mask_count,), self.mask_index, device=self.device),
+                torch.tensor([self.eos_index], device=self.device),
+            ]
+        )
+
+        # Pad to max_len if needed
+        if len(masked_seq) < max_len:
+            pad_len = max_len - len(masked_seq)
+            masked_seq = torch.hstack(
+                [masked_seq, torch.full((pad_len,), self.pad_index, device=self.device)]
+            )
+
+        # Create attention mask (1 for real tokens, 0 for padding)
+        attn_mask = (masked_seq != self.pad_index).to(self.device)
+
+        return masked_seq, attn_mask
+
     def reset(self, resetTree):
         self.iter_num = 0
         self.buffer = []
@@ -338,10 +427,17 @@ class MCTS:
 
         # add option to continue with the same tree
         if resetTree:
-            masked_seq = torch.ones((self.args.seq_length), device=self.device) * self.mask_index
+            if self.variable_length:
+                masked_seq, attn_mask = self._create_variable_length_mask()
+            else:
+                masked_seq = (
+                    torch.ones((self.args.seq_length), device=self.device) * self.mask_index
+                )
+                attn_mask = torch.ones_like(masked_seq).to(self.device)
+
             masked_tokens = {
                 "seqs": masked_seq.to(dtype=torch.long),
-                "attention_mask": torch.ones_like(masked_seq).to(self.device),
+                "attention_mask": attn_mask.to(self.device),
             }
             self.rootNode = Node(
                 self.args,
@@ -430,6 +526,13 @@ class MCTS:
                 "score_vector": sv.copy(),
                 "seq": childSequences[i],
             }
+
+            ## Drop if sequence already exists in buffer -- Liz
+            current_seq = childSequences[i]
+            if any(bi["seq"] == current_seq for bi in self.buffer):
+                rejected_count += 1
+                self._debug_buffer_decision(sv, "rejected_duplicate")
+                continue
 
             # Drop if dominated by any existing
             if any(dominated_by(sv, bi["score_vector"]) for bi in self.buffer):
